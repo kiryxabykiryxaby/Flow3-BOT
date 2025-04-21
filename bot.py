@@ -80,11 +80,13 @@ class Flow3:
             self.log(f"{Fore.RED + Style.BRIGHT}Failed To Load Proxies: {e}{Style.RESET_ALL}")
             self.proxies = []
 
-    def check_proxy_schemes(self, proxies):
-         schemes = ["http://", "https://", "socks4://", "socks5://"]
-         if any(proxies.startswith(scheme) for scheme in schemes):
-             return proxies
-         return f"http://{proxies}"
+    def check_proxy_schemes(self, proxy_str):
+        schemes = ["http://", "https://", "socks4://", "socks5://"]
+        if any(proxy_str.startswith(scheme) for scheme in schemes):
+            return proxy_str
+        # Если нет схемы, добавим http:// по умолчанию
+        return f"http://{proxy_str}"
+
  
     def get_next_proxy_for_account(self, account):
          if account not in self.account_proxies:
@@ -545,17 +547,15 @@ class Flow3:
             while True:
                 tasks = []
                 for refresh_token in tokens:
-                    if refresh_token:
-                        access_token = self.decode_token(refresh_token, "accessToken")
+                    account = self.decode_token(refresh_token, "email")
+                    if account:
+                        self.access_tokens[account] = refresh_token
+                        self.refresh_tokens[account] = refresh_token
+                        tasks.append(asyncio.create_task(self.process_accounts(account, use_proxy)))
+                    else:
+                        self.log(f"{Fore.RED + Style.BRIGHT}⚠️ Не удалось декодировать email из токена:{Style.RESET_ALL} {refresh_token[:30]}...")
 
-                        if access_token:
-                            account = self.decode_token(access_token, "email")
 
-                            if account:
-                                self.access_tokens[account] = access_token
-                                self.refresh_tokens[account] = refresh_token
-
-                                tasks.append(asyncio.create_task(self.process_accounts(account, use_proxy)))
 
                 await asyncio.gather(*tasks)
                 await asyncio.sleep(10)
