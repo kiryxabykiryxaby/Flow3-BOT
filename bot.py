@@ -145,7 +145,7 @@ class Flow3:
     
     async def refresh_token(self, account: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/user/refresh"
-        data = json.dumps({"refreshToken":self.refresh_tokens[account]})
+        data = json.dumps({"refreshToken": self.refresh_tokens[account]})
         headers = {
             **self.headers,
             "Authorization": f"Bearer {self.refresh_tokens[account]}",
@@ -154,16 +154,43 @@ class Flow3:
         }
         for attempt in range(retries):
             try:
-                response = await asyncio.to_thread(requests.post, url=url, headers=headers, data=data, proxy=proxy, timeout=120, impersonate="chrome110")
+                response = await asyncio.to_thread(
+                    requests.post,
+                    url=url,
+                    headers=headers,
+                    data=data,
+                    proxy=proxy,
+                    timeout=120,
+                    impersonate="chrome110"
+                )
                 response.raise_for_status()
                 result = response.json()
                 return result['data']
             except Exception as e:
+                error_str = str(e)
+
+                # Обработка по кодам ошибок
+                if "HTTP Error 500" in error_str:
+                    self.log(f"{Fore.YELLOW + Style.BRIGHT}Server 500 for {self.mask_account(account)}, sleeping 5 minutes...{Style.RESET_ALL}")
+                    await asyncio.sleep(5 * 60)
+                    return None
+
+                if "HTTP Error 429" in error_str:
+                    self.log(f"{Fore.YELLOW + Style.BRIGHT}Rate Limit (429) for {self.mask_account(account)}, sleeping 10 minutes...{Style.RESET_ALL}")
+                    await asyncio.sleep(10 * 60)
+                    return None
+
+                if "HTTP Error 403" in error_str:
+                    self.log(f"{Fore.YELLOW + Style.BRIGHT}Access Forbidden (403) for {self.mask_account(account)}, sleeping 30 minutes...{Style.RESET_ALL}")
+                    await asyncio.sleep(30 * 60)
+                    return None
+
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return self.print_message(account, proxy, Fore.RED, f"Refreshing Tokens Failed: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
-    
+
+                return self.print_message(account, proxy, Fore.RED, f"Refreshing Tokens Failed: {Fore.YELLOW + Style.BRIGHT}{error_str}")
+
     async def get_connection_quality(self, account: str, use_proxy: bool, proxy=None, retries=5):
         url = f"{self.BASE_API}/user/get-connection-quality"
         headers = {
@@ -391,7 +418,7 @@ class Flow3:
                 f"{Fore.WHITE + Style.BRIGHT}{quality}{Style.RESET_ALL}"
             )
 
-            await asyncio.sleep(0.5 * 60)
+            await asyncio.sleep(2 * 60)
         
     async def process_get_user_earning(self, account: str, use_proxy: bool):
         while True:
@@ -506,6 +533,42 @@ class Flow3:
         tasks.append(asyncio.create_task(self.process_claim_daily_checkin(account, use_proxy)))
         tasks.append(asyncio.create_task(self.process_complete_user_tasks(account, use_proxy)))
         await asyncio.gather(*tasks)
+        
+    async def check_token_file_updates(self):
+        last_modified_time = os.path.getmtime('tokens.txt')
+        while True:
+            try:
+                current_modified_time = os.path.getmtime('tokens.txt')
+                if current_modified_time > last_modified_time:
+                    self.log(f"{Fore.CYAN + Style.BRIGHT}Token file updated, reloading tokens...{Style.RESET_ALL}")
+                    with open('tokens.txt', 'r') as file:
+                        tokens = [line.strip() for line in file if line.strip()]
+                    
+                    # Update tokens in memory
+                    new_accounts = {}
+                    for refresh_token in tokens:
+                        account = self.decode_token(refresh_token, "email")
+                        if account:
+                            new_accounts[account] = refresh_token
+                    
+                    # Update existing accounts with new tokens
+                    for account, token in new_accounts.items():
+                        self.refresh_tokens[account] = token
+                        # Keep access token as is unless we need to refresh
+                    
+                    # Add new accounts
+                    for account in new_accounts:
+                        if account not in self.access_tokens:
+                            self.access_tokens[account] = new_accounts[account]
+                            self.refresh_tokens[account] = new_accounts[account]
+                            self.log(f"{Fore.GREEN + Style.BRIGHT}New account added: {self.mask_account(account)}{Style.RESET_ALL}")
+                    
+                    last_modified_time = current_modified_time
+                    self.log(f"{Fore.GREEN + Style.BRIGHT}Tokens updated successfully{Style.RESET_ALL}")
+            except Exception as e:
+                self.log(f"{Fore.RED + Style.BRIGHT}Error checking token updates: {e}{Style.RESET_ALL}")
+            
+            await asyncio.sleep(60)  # Check every minute
 
     async def main(self):
         try:
@@ -530,6 +593,9 @@ class Flow3:
 
             self.log(f"{Fore.CYAN + Style.BRIGHT}-{Style.RESET_ALL}"*75)
             
+            # Start token file monitoring
+            token_monitor_task = asyncio.create_task(self.check_token_file_updates())
+            
             while True:
                 tasks = []
                 for refresh_token in tokens:
@@ -540,9 +606,7 @@ class Flow3:
                         tasks.append(asyncio.create_task(self.process_accounts(account, use_proxy)))
                     else:
                         self.log(f"{Fore.RED + Style.BRIGHT}⚠️ Не удалось декодировать email из токена:{Style.RESET_ALL} {refresh_token[:30]}...")
-
-
-
+                
                 await asyncio.gather(*tasks)
                 await asyncio.sleep(10)
 
