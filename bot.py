@@ -84,8 +84,9 @@ class Flow3:
         schemes = ["http://", "https://", "socks4://", "socks5://"]
         if any(proxy_str.startswith(scheme) for scheme in schemes):
             return proxy_str
-        # Если нет схемы, добавим http:// по умолчанию
-        return f"http://{proxy_str}"
+        # По умолчанию теперь socks5
+        return f"socks5://{proxy_str}"
+
 
  
     def get_next_proxy_for_account(self, account):
@@ -137,25 +138,10 @@ class Flow3:
         )
         
     def print_question(self):
-        while True:
-            try:
-                print("1. Run With Monosans Proxy")
-                print("2. Run With Private Proxy")
-                print("3. Run Without Proxy")
-                choose = int(input("Choose [1/2/3] -> ").strip())
+        use_proxy_choice = 2  # По умолчанию выбираем Private Proxy
+        print(f"{Fore.GREEN + Style.BRIGHT}Run With Private Proxy Selected.{Style.RESET_ALL}")
+        return use_proxy_choice
 
-                if choose in [1, 2, 3]:
-                    proxy_type = (
-                        "Run With Monosans Proxy" if choose == 1 else 
-                        "Run With Private Proxy" if choose == 2 else 
-                        "Run Without Proxy"
-                    )
-                    print(f"{Fore.GREEN + Style.BRIGHT}{proxy_type} Selected.{Style.RESET_ALL}")
-                    return choose
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Please enter either 1, 2 or 3.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number (1, 2 or 3).{Style.RESET_ALL}")
     
     async def refresh_token(self, account: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/user/refresh"
